@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } from './router';
 import { Bell, CalendarDays, Check, ChevronRight, CircleUserRound, Compass, Home, LogOut, MessageCircle, Moon, Plus, Search, Send, Settings, Sparkles, Sun, Users, X } from 'lucide-react';
-import { communities, initialSessions, people, skills } from './data';
+import { communities, initialSessions, people, skills, getRankedPeople } from './data';
 
 const nav = [['/dashboard', Home, 'Home'], ['/explore', Compass, 'Explore'], ['/matches', Sparkles, 'Matches'], ['/communities', Users, 'Communities'], ['/polls', '◉', 'Polls'], ['/sessions', CalendarDays, 'Sessions'], ['/calendar', '▦', 'Calendar'], ['/chat', MessageCircle, 'Chat']];
 const avatar = (p, small = false) => <span className={'avatar' + (small ? ' small' : '')} style={{ background: p.color }}>{p.initials}</span>;
@@ -191,7 +191,7 @@ function Login({ profile, setProfile }) {
   );
 }
 
-function Onboarding({ profile, setProfile, toast }) {
+function Onboarding({ profile, setProfile, toast, setNotifications }) {
   const nav = useNavigate();
   const [step, setStep] = useState(1);
   const [name, setName] = useState(profile?.isOnboarded ? (profile?.name || '') : (profile?.name && profile?.name !== defaultProfile.name ? profile.name : ''));
@@ -241,7 +241,7 @@ function Onboarding({ profile, setProfile, toast }) {
     const initials = cleanName
       ? cleanName.split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase()
       : 'SC';
-    setProfile({
+    const updatedProfile = {
       ...profile,
       name: cleanName,
       initials,
@@ -251,7 +251,28 @@ function Onboarding({ profile, setProfile, toast }) {
       learns: learn,
       availability,
       isOnboarded: true
-    });
+    };
+    setProfile(updatedProfile);
+
+    // Refresh notification #1 with the user's real top match
+    if (setNotifications) {
+      const best = getRankedPeople(updatedProfile, people)[0];
+      if (best) {
+        const canTeach = best.canTeachYou?.[0] || best.teaches[0];
+        const wants = best.wantsFromYou?.[0] || teach[0] || 'from you';
+        setNotifications(prev => [
+          {
+            id: 1,
+            icon: '✦',
+            title: `${best.match}% skill match found`,
+            text: `${best.name} can teach ${canTeach} and wants to learn ${wants}.`,
+            time: 'Now',
+            unread: true
+          },
+          ...prev.filter(n => n.id !== 1)
+        ]);
+      }
+    }
     setStep(5);
   };
 
@@ -383,11 +404,16 @@ function Dashboard({ sessions, joined, profile, openSearch }) {
   const learns = profile?.learns || [];
   const technical = teaches.filter(skill => skills.technical.includes(skill)).length;
   const human = teaches.length - technical;
-  return <div><div className="welcome"><div><p className="eyebrow">THURSDAY · AUGUST 13</p><h1>Good morning, {(profile?.name || 'Student').split(' ')[0]} <span>✦</span></h1><p>What are you learning today?</p></div><div className="network"><i/> CAMPUS NETWORK <b>● 1,842 online</b></div></div><button className="big-search" onClick={openSearch || (()=>nav('/explore'))}><Search size={20}/><span>Search skills, people or communities...</span><kbd>⌘ K</kbd></button><section className="snapshot"><div><small>YOUR SKILL SNAPSHOT</small><h2>Built to exchange.</h2><p>Your curiosity has a campus.</p></div><div><b>{teaches.length}</b><span>Can teach</span></div><div><b>{learns.length}</b><span>Want to learn</span></div><div className="meta"><span>TECHNICAL {String(technical).padStart(2,'0')}</span><span>NON-TECHNICAL {String(human).padStart(2,'0')}</span></div></section><section className="split-heading"><div><small className="eyebrow">PICKED FOR YOU</small><h2>Good people to meet.</h2></div><Link to="/matches">View all <ChevronRight size={16}/></Link></section><div className="recommend-grid">{people.slice(0,3).map(p => <PersonCard p={p} key={p.id}/>)}</div><div className="dashboard-bottom"><section><div className="split-heading"><div><small className="eyebrow">UP NEXT</small><h2>Your upcoming session.</h2></div><Link to="/calendar">Calendar <ChevronRight size={16}/></Link></div><SessionCard session={sessions[0]}/></section><section className="popular"><small className="eyebrow">CAMPUS PULSE</small><h2>Popular right now.</h2>{[['Python',42],['UI/UX',28],['Public Speaking',24],['Photography',18]].map(([s,n])=><div key={s}><SkillChip>{s}</SkillChip><span>{n} interested</span><i style={{width:`${n*2}%`}}/></div>)}</section></div><section className="your-comms"><small className="eyebrow">YOUR COMMUNITIES</small>{communities.filter(c=>joined.includes(c.id)).map(c=><Link to={`/communities/${c.id}`} key={c.id}>{c.name}<span>{c.members} members</span><ChevronRight size={16}/></Link>)}</section></div> }
-function PersonCard({ p, connect }) { return <article className="person-card"><div className="person-top">{avatar(p)}<span className="percent">{p.match}%<small>MATCH</small></span></div><h3>{p.name}</h3><p>{p.dept} · {p.year}</p><small>CAN TEACH</small><SkillChip>{p.teaches[0]}</SkillChip><small>WANTS TO LEARN</small><SkillChip>{p.learns[0]}</SkillChip><footer><Link to={`/profile/${p.id}`}>View profile</Link>{connect && <button onClick={()=>connect(p)}>Connect</button>}</footer></article> }
+  const rankedPeople = useMemo(() => getRankedPeople(profile, people), [profile]);
+  return <div><div className="welcome"><div><p className="eyebrow">THURSDAY · AUGUST 13</p><h1>Good morning, {(profile?.name || 'Student').split(' ')[0]} <span>✦</span></h1><p>What are you learning today?</p></div><div className="network"><i/> CAMPUS NETWORK <b>● 1,842 online</b></div></div><button className="big-search" onClick={openSearch || (()=>nav('/explore'))}><Search size={20}/><span>Search skills, people or communities...</span><kbd>⌘ K</kbd></button><section className="snapshot"><div><small>YOUR SKILL SNAPSHOT</small><h2>Built to exchange.</h2><p>Your curiosity has a campus.</p></div><div><b>{teaches.length}</b><span>Can teach</span></div><div><b>{learns.length}</b><span>Want to learn</span></div><div className="meta"><span>TECHNICAL {String(technical).padStart(2,'0')}</span><span>NON-TECHNICAL {String(human).padStart(2,'0')}</span></div></section><section className="split-heading"><div><small className="eyebrow">PICKED FOR YOU</small><h2>Good people to meet.</h2></div><Link to="/matches">View all <ChevronRight size={16}/></Link></section><div className="recommend-grid">{rankedPeople.slice(0,3).map(p => <PersonCard p={p} key={p.id}/>)}</div><div className="dashboard-bottom"><section><div className="split-heading"><div><small className="eyebrow">UP NEXT</small><h2>Your upcoming session.</h2></div><Link to="/calendar">Calendar <ChevronRight size={16}/></Link></div><SessionCard session={sessions[0]}/></section><section className="popular"><small className="eyebrow">CAMPUS PULSE</small><h2>Popular right now.</h2>{[['Python',42],['UI/UX',28],['Public Speaking',24],['Photography',18]].map(([s,n])=><div key={s}><SkillChip>{s}</SkillChip><span>{n} interested</span><i style={{width:`${n*2}%`}}/></div>)}</section></div><section className="your-comms"><small className="eyebrow">YOUR COMMUNITIES</small>{communities.filter(c=>joined.includes(c.id)).map(c=><Link to={`/communities/${c.id}`} key={c.id}>{c.name}<span>{c.members} members</span><ChevronRight size={16}/></Link>)}</section></div> }
+function PersonCard({ p, connect }) { 
+  const teachSkill = p.canTeachYou?.[0] || p.teaches[0];
+  const learnSkill = p.wantsFromYou?.[0] || p.learns[0];
+  return <article className="person-card"><div className="person-top">{avatar(p)}<span className="percent">{p.match}%<small>MATCH</small></span></div><h3>{p.name}</h3><p>{p.dept} · {p.year}</p><small>CAN TEACH</small><SkillChip>{teachSkill}</SkillChip><small>WANTS TO LEARN</small><SkillChip>{learnSkill}</SkillChip><footer><Link to={`/profile/${p.id}`}>View profile</Link>{connect && <button onClick={()=>connect(p)}>Connect</button>}</footer></article>;
+}
 function SessionCard({ session, join }) { return <article className="session-card"><div className="session-date"><strong>{session.day}</strong><span>{session.date}</span></div><div><SkillChip>{session.skill}</SkillChip><h3>{session.skill}</h3><p>{session.teacher} · {session.time}</p><span className="session-meta">{session.mode} · {session.place} <b>{session.seats} / {session.capacity} seats</b></span></div>{join && <button className="button" onClick={()=>join(session)}>Join session</button>}</article> }
-function Explore() { const [query,setQuery]=useState(''),[tab,setTab]=useState('All'),[filters,setFilters]=useState([]); const items=useMemo(()=>[...people.map(x=>({...x,type:'People'})),...communities.map(x=>({...x,type:'Communities'})),...skills.technical.map(name=>({name,type:'Skills',category:'Technical',members:Math.floor(Math.random()*30+16)})),...skills.nonTechnical.map(name=>({name,type:'Skills',category:'Non-Technical',members:Math.floor(Math.random()*30+10)}))].filter(x=>{const category=x.category||(x.teaches?.some(s=>skills.technical.includes(s))?'Technical':'Non-Technical');const mode=x.availability?.includes('Offline')?'Offline':'Online';return (tab==='All'||x.type===tab)&&x.name.toLowerCase().includes(query.toLowerCase())&&filters.every(f=>!['Technical','Non-Technical','Online','Offline'].includes(f)||(f===category||f===mode));}),[query,tab,filters]); const toggle=f=>setFilters(filters.includes(f)?filters.filter(x=>x!==f):[...filters,f]); return <div><PageHead eyebrow="DISCOVER" title="Explore the campus."/><div className="explore-search"><Search size={20}/><input autoFocus value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search skills, people or communities..."/></div><div className="tabs">{['All','Skills','People','Communities','Sessions'].map(t=><button className={tab===t?'active':''} onClick={()=>setTab(t)} key={t}>{t}</button>)}</div><div className="filters">{['Technical','Non-Technical','Online','Offline','Beginner','Intermediate','Advanced'].map(f=><Chip key={f} active={filters.includes(f)} onClick={()=>toggle(f)}>{f}</Chip>)}</div><div className="explore-results">{items.map((x,i)=>x.type==='People'?<PersonCard key={x.id} p={x}/>:<article className="result-card" key={x.name+i}><span className="result-mark">{x.type==='Communities'?'◌':'✦'}</span><small>{x.type==='Skills'?(x.category||'TECHNICAL'):x.type}</small><h3>{x.name}</h3><p>{x.type==='Communities'?`${x.members} members · ${x.online} online`:`${x.members} students interested`}</p><Link to={x.type==='Communities'?`/communities/${x.id}`:'/matches'}>Explore <ChevronRight size={15}/></Link></article>)}</div>{!items.length&&<Empty title="Nothing found yet" text="Try a different skill, person or community."/>}</div> }
-function Matches({ toast }) { const [filter,setFilter]=useState('Best Match'),[connected,setConnected]=useState([]); const match=people.filter(p=>filter==='Best Match'||(filter==='Technical'&&p.teaches.some(s=>skills.technical.includes(s)))||(filter==='Non-Technical'&&p.teaches.some(s=>skills.nonTechnical.includes(s)))||p.availability.includes(filter)); const connect=p=>{setConnected([...connected,p.id]);toast(`Connection request sent to ${p.name.split(' ')[0]}`)}; return <div><PageHead eyebrow="SMART MATCHING" title="Your matches"><p className="subhead">People who can help you learn what you want — and learn what you know.</p></PageHead><div className="filters">{['Best Match','Technical','Non-Technical','Online','Offline'].map(f=><Chip active={filter===f} onClick={()=>setFilter(f)} key={f}>{f}</Chip>)}</div><div className="match-list">{match.map(p=><article className="match-card" key={p.id}>{avatar(p)}<div className="match-main"><h3>{p.name} <span>{p.match}% match</span></h3><p>{p.dept} · {p.year} · {p.availability}</p><div><small>CAN TEACH</small><SkillChip>{p.teaches[0]}</SkillChip><i>↔</i><small>WANTS TO LEARN</small><SkillChip>{p.learns[0]}</SkillChip></div><p className="match-reason"><Check size={15}/> Complementary skills · Same campus · Similar availability</p></div><div className="match-actions"><Link className="button" to={`/profile/${p.id}`}>View profile</Link><button className="button primary" disabled={connected.includes(p.id)} onClick={()=>connect(p)}>{connected.includes(p.id)?'Sent': 'Connect'}</button></div></article>)}</div></div> }
+function Explore({ profile }) { const [query,setQuery]=useState(''),[tab,setTab]=useState('All'),[filters,setFilters]=useState([]); const ranked=useMemo(()=>getRankedPeople(profile, people),[profile]); const items=useMemo(()=>[...ranked.map(x=>({...x,type:'People'})),...communities.map(x=>({...x,type:'Communities'})),...skills.technical.map(name=>({name,type:'Skills',category:'Technical',members:Math.floor(Math.random()*30+16)})),...skills.nonTechnical.map(name=>({name,type:'Skills',category:'Non-Technical',members:Math.floor(Math.random()*30+10)}))].filter(x=>{const category=x.category||(x.teaches?.some(s=>skills.technical.includes(s))?'Technical':'Non-Technical');const mode=x.availability?.includes('Offline')?'Offline':'Online';return (tab==='All'||x.type===tab)&&(x.name||'').toLowerCase().includes(query.toLowerCase())&&filters.every(f=>!['Technical','Non-Technical','Online','Offline'].includes(f)||(f===category||f===mode));}),[query,tab,filters,ranked]); const toggle=f=>setFilters(filters.includes(f)?filters.filter(x=>x!==f):[...filters,f]); return <div><PageHead eyebrow="DISCOVER" title="Explore the campus."/><div className="explore-search"><Search size={20}/><input autoFocus value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search skills, people or communities..."/></div><div className="tabs">{['All','Skills','People','Communities','Sessions'].map(t=><button className={tab===t?'active':''} onClick={()=>setTab(t)} key={t}>{t}</button>)}</div><div className="filters">{['Technical','Non-Technical','Online','Offline','Beginner','Intermediate','Advanced'].map(f=><Chip key={f} active={filters.includes(f)} onClick={()=>toggle(f)}>{f}</Chip>)}</div><div className="explore-results">{items.map((x,i)=>x.type==='People'?<PersonCard key={x.id} p={x}/>:<article className="result-card" key={x.name+i}><span className="result-mark">{x.type==='Communities'?'◌':'✦'}</span><small>{x.type==='Skills'?(x.category||'TECHNICAL'):x.type}</small><h3>{x.name}</h3><p>{x.type==='Communities'?`${x.members} members · ${x.online} online`:`${x.members} students interested`}</p><Link to={x.type==='Communities'?`/communities/${x.id}`:'/matches'}>Explore <ChevronRight size={15}/></Link></article>)}</div>{!items.length&&<Empty title="Nothing found yet" text="Try a different skill, person or community."/>}</div> }
+function Matches({ toast, profile }) { const [filter,setFilter]=useState('Best Match'),[connected,setConnected]=useState([]); const ranked = useMemo(() => getRankedPeople(profile, people), [profile]); const match=ranked.filter(p=>filter==='Best Match'||(filter==='Technical'&&p.teaches.some(s=>skills.technical.includes(s)))||(filter==='Non-Technical'&&p.teaches.some(s=>skills.nonTechnical.includes(s)))||p.availability.includes(filter)); const connect=p=>{setConnected([...connected,p.id]);toast(`Connection request sent to ${p.name.split(' ')[0]}`)}; return <div><PageHead eyebrow="SMART MATCHING" title="Your matches"><p className="subhead">People who can help you learn what you want — and learn what you know.</p></PageHead><div className="filters">{['Best Match','Technical','Non-Technical','Online','Offline'].map(f=><Chip active={filter===f} onClick={()=>setFilter(f)} key={f}>{f}</Chip>)}</div><div className="match-list">{match.map(p=><article className="match-card" key={p.id}>{avatar(p)}<div className="match-main"><h3>{p.name} <span>{p.match}% match</span></h3><p>{p.dept} · {p.year} · {p.availability}</p><div><small>CAN TEACH</small><SkillChip>{p.canTeachYou?.[0] || p.teaches[0]}</SkillChip><i>↔</i><small>WANTS TO LEARN</small><SkillChip>{p.wantsFromYou?.[0] || p.learns[0]}</SkillChip></div><p className="match-reason"><Check size={15}/> {p.matchReason || 'Complementary skills · Same campus · Similar availability'}</p></div><div className="match-actions"><Link className="button" to={`/profile/${p.id}`}>View profile</Link><button className="button primary" disabled={connected.includes(p.id)} onClick={()=>connect(p)}>{connected.includes(p.id)?'Sent': 'Connect'}</button></div></article>)}</div></div> }
 function Communities({ joined, setJoined, toast }) { const toggle = c=>{const exists=joined.includes(c.id);setJoined(exists?joined.filter(x=>x!==c.id):[...joined,c.id]);toast(exists?`Left ${c.name}`:`Joined ${c.name} Community`)}; return <div><PageHead eyebrow="CAMPUS CIRCLES" title="Find your people."><p className="subhead">Learn together with students who share your interests.</p></PageHead>{['Technical','Non-Technical'].map(cat=><section className="community-section" key={cat}><h2>{cat}</h2><div className="community-grid">{communities.filter(c=>c.category===cat).map(c=><article className="community-card" key={c.id}><span className="community-symbol" style={{color:c.color}}>◌</span><small>{c.category.toUpperCase()}</small><h3>{c.name}</h3><p><b>{c.members}</b> members <i/> {c.online} online</p><div><span>Trending</span><b>{c.topic}</b></div><footer><Link to={`/communities/${c.id}`}>View <ChevronRight size={15}/></Link><button onClick={()=>toggle(c)} className={joined.includes(c.id)?'joined':''}>{joined.includes(c.id)?'Joined':'Join community'}</button></footer></article>)}</div></section>)}</div> }
 function CommunityDetail({ joined, setJoined, toast, sessions }) { const {id}=useParams(), c=communities.find(x=>x.id===id)||communities[0], [tab,setTab]=useState('Overview'), isJoined=joined.includes(c.id); const toggle=()=>{setJoined(isJoined?joined.filter(x=>x!==c.id):[...joined,c.id]);toast(isJoined?`Left ${c.name}`:`Joined ${c.name} Community`)}; return <div className="community-detail"><div className="community-hero" style={{'--accent':c.color}}><Link to="/communities">← Communities</Link><small>COMMUNITY / {c.category.toUpperCase()}</small><h1>{c.name} <em>Community</em></h1><p>{c.members} members <i/> {c.online} online now</p><button className="button primary" onClick={toggle}>{isJoined?'✓ Joined':'Join community'}</button></div><div className="tabs detail-tabs">{['Overview','Discussions','Questions','Resources','Polls','Sessions','Members'].map(t=><button className={tab===t?'active':''} onClick={()=>setTab(t)} key={t}>{t}</button>)}</div>{tab==='Overview'?<div className="community-layout"><section><small className="eyebrow">TRENDING DISCUSSIONS</small>{['Best Python projects for beginners?','How should I start learning NumPy?','Looking for pair programming partners.'].map((d,i)=><article className="discussion" key={d}><span>{['RK','PS','VD'][i]}</span><div><h3>{d}</h3><p>{['Rahul started a conversation','Priya shared a question','Vivek is looking for collaborators'][i]} · {i+2}h ago</p></div><b>{[24,17,9][i]} replies</b></article>)}</section><aside><small className="eyebrow">UPCOMING SESSION</small><SessionCard session={sessions[0]}/><small className="eyebrow">MEMBERS</small><div className="face-row">{people.map(p=><span key={p.id}>{avatar(p,true)}</span>)}<span>+1.2k</span></div><button className="button full">Find people in {c.name}</button></aside></div>:<Empty title={`No ${tab.toLowerCase()} to show`} text="This community space is ready for its next contribution."/>}</div> }
 
@@ -396,9 +422,81 @@ function Polls({ toast }) { const [votes,setVotes]=usePersisted('sc-poll',[42,35
 function Sessions({ sessions, setSessions, toast, profile }) { const [tab,setTab]=useState('Upcoming'),[form,setForm]=useState(false); const create=e=>{e.preventDefault();const f=new FormData(e.currentTarget);setSessions([...sessions,{id:Date.now(),skill:f.get('skill'),teacher:profile.name,day:'Next week',date:f.get('date')||'Aug 20',time:f.get('time')||'4:00 PM',mode:f.get('mode'),place:f.get('place')||'TBA',seats:0,capacity:Number(f.get('capacity'))||15,type:'Technical'}]);setForm(false);toast('Session added to your calendar')}; const join=s=>{setSessions(sessions.map(x=>x.id===s.id&&x.seats<x.capacity?{...x,seats:x.seats+1}:x));toast(`You're in — ${s.skill} is on your calendar`)};return <div><PageHead eyebrow="LEARN TOGETHER" title="Sessions"><button className="button primary" onClick={()=>setForm(true)}><Plus size={17}/> Create session</button></PageHead><div className="tabs">{['Upcoming','Discover','My Sessions'].map(t=><button className={tab===t?'active':''} onClick={()=>setTab(t)} key={t}>{t}</button>)}</div><div className="sessions-list">{sessions.map(s=><SessionCard session={s} join={join} key={s.id}/>)}</div>{form&&<Modal close={()=>setForm(false)} title="Create a learning session"><form className="modal-form" onSubmit={create}><label>Skill<input name="skill" required placeholder="e.g. JavaScript Basics"/></label><div className="two-col"><label>Mode<select name="mode"><option>Online</option><option>Offline</option></select></label><label>Capacity<input name="capacity" type="number" defaultValue="15"/></label></div><div className="two-col"><label>Date<input name="date" type="date"/></label><label>Time<input name="time" type="time"/></label></div><label>Location / Meeting link<input name="place" placeholder="Innovation Lab or meeting link"/></label><button className="button primary full">Create session</button></form></Modal>}</div> }
 function Modal({title,children,close}) { return <div className="modal-wrap" role="dialog" aria-modal="true"><div className="modal"><button className="modal-close" onClick={close}><X size={18}/></button><h2>{title}</h2>{children}</div></div> }
 function Calendar({ sessions }) { const [selected,setSelected]=useState(sessions[0]); const days=Array.from({length:31},(_,i)=>i+1); return <div><PageHead eyebrow="YOUR RHYTHM" title="August 2026"/><div className="calendar-layout"><section className="calendar-box"><header><button>‹</button><b>August 2026</b><button>›</button></header><div className="week">{['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(x=><span key={x}>{x}</span>)}</div><div className="dates">{Array.from({length:5},(_,i)=><i key={'e'+i}/>) }{days.map(d=>{const s=sessions.find(x=>x.date==='Aug '+d);return <button key={d} onClick={()=>s&&setSelected(s)} className={s?'has-session':''}>{d}{s&&<em>{s.skill.split(' ')[0]}</em>}</button>})}</div></section><aside className="upcoming-panel"><small className="eyebrow">UPCOMING</small>{sessions.map(s=><button onClick={()=>setSelected(s)} key={s.id}><span>{s.day}</span><div><b>{s.skill}</b><small>{s.time} · {s.mode}</small></div></button>)}{selected&&<div className="calendar-selected"><small>SELECTED SESSION</small><h3>{selected.skill}</h3><p>{selected.day} · {selected.time}<br/>{selected.place}</p></div>}</aside></div></div> }
-function Chat({ toast, profile }) { const [selected,setSelected]=useState(people[0]),[messages,setMessages]=useState([{mine:false,text:`Hey ${profile.name.split(' ')[0]}! I saw you are learning UI/UX.`,time:'10:32 AM'},{mine:true,text:'Yes! Your work in the community is really inspiring.',time:'10:34 AM'},{mine:false,text:'That means a lot. Want to review a small Figma exercise this evening?',time:'10:35 AM'}]),[text,setText]=useState(''); const send=e=>{e.preventDefault();if(!text.trim())return;setMessages([...messages,{mine:true,text,time:'Now'}]);setText('');toast('Message sent')}; return <div className="chat-page"><div className="conversations"><PageHead eyebrow="MESSAGES" title="Conversations"/><div className="conversation-search"><Search size={15}/><input placeholder="Search conversations"/></div>{people.map(p=><button className={selected.id===p.id?'active':''} onClick={()=>setSelected(p)} key={p.id}>{avatar(p,true)}<span><b>{p.name}</b><small>{p.id==='priya'?'Want to review a Figma exercise?':'Active in the campus network'}</small></span><i/></button>)}</div><section className="chat-window"><header>{avatar(selected,true)}<div><h3>{selected.name}</h3><p><i/> Online now</p></div><button className="icon-btn">•••</button></header><div className="messages">{messages.map((m,i)=><div className={m.mine?'mine':''} key={i}><p>{m.text}</p><small>{m.time}</small></div>)}</div><form onSubmit={send}><button type="button" className="icon-btn">+</button><input value={text} onChange={e=>setText(e.target.value)} placeholder="Write a message..."/><button className="send" aria-label="Send"><Send size={18}/></button></form></section></div> }
+function Chat({ toast, profile }) {
+  const ranked = useMemo(() => getRankedPeople(profile, people), [profile]);
+  const [selected, setSelected] = useState(() => ranked[0] || people[0]);
+
+  const makeStarter = (person) => {
+    const pName = person.name.split(' ')[0];
+    const pTeach = person.canTeachYou?.[0] || person.teaches[0];
+    const pLearn = person.wantsFromYou?.[0] || profile?.teaches?.[0] || 'skills';
+    return [
+      { mine: false, text: `Hey ${(profile?.name || 'there').split(' ')[0]}! I saw on SkillConnect that you want to learn ${pTeach}.`, time: '10:32 AM' },
+      { mine: true, text: `Hey ${pName}! Yes! And I would love to help you with ${pLearn} if you want to trade skills.`, time: '10:34 AM' },
+      { mine: false, text: `That sounds like a great trade! When are you free for a quick campus session?`, time: '10:35 AM' }
+    ];
+  };
+
+  const [messages, setMessages] = useState(() => makeStarter(ranked[0] || people[0]));
+  const [text, setText] = useState('');
+
+  const switchPerson = (p) => {
+    setSelected(p);
+    setMessages(makeStarter(p));
+  };
+
+  const send = e => {
+    e.preventDefault();
+    if (!text.trim()) return;
+    setMessages([...messages, { mine: true, text, time: 'Now' }]);
+    setText('');
+    toast('Message sent');
+  };
+
+  return (
+    <div className="chat-page">
+      <div className="conversations">
+        <PageHead eyebrow="MESSAGES" title="Conversations"/>
+        <div className="conversation-search"><Search size={15}/><input placeholder="Search conversations"/></div>
+        {ranked.map(p => (
+          <button className={selected.id === p.id ? 'active' : ''} onClick={() => switchPerson(p)} key={p.id}>
+            {avatar(p, true)}
+            <span>
+              <b>{p.name}</b>
+              <small>{p.canTeachYou?.[0] ? `Can teach ${p.canTeachYou[0]} (${p.match}% match)` : `${p.teaches[0]} · ${p.match}% match`}</small>
+            </span>
+            <i/>
+          </button>
+        ))}
+      </div>
+      <section className="chat-window">
+        <header>
+          {avatar(selected, true)}
+          <div>
+            <h3>{selected.name}</h3>
+            <p><i/> Online now · {selected.match}% match</p>
+          </div>
+          <button className="icon-btn">•••</button>
+        </header>
+        <div className="messages">
+          {messages.map((m, i) => (
+            <div className={m.mine ? 'mine' : ''} key={i}>
+              <p>{m.text}</p>
+              <small>{m.time}</small>
+            </div>
+          ))}
+        </div>
+        <form onSubmit={send}>
+          <button type="button" className="icon-btn">+</button>
+          <input value={text} onChange={e => setText(e.target.value)} placeholder="Write a message..."/>
+          <button className="send" aria-label="Send"><Send size={18}/></button>
+        </form>
+      </section>
+    </div>
+  );
+}
 function Notifications({ notifications, setNotifications }) { const readAll=()=>setNotifications(notifications.map(x=>({...x,unread:false}))); return <div><PageHead eyebrow="STAY IN THE LOOP" title="Notifications"><button className="button" onClick={readAll}>Mark all as read</button></PageHead><div className="notification-list">{notifications.map(n=><article className={n.unread?'unread':''} key={n.id}><span>{n.icon}</span><div><h3>{n.title}</h3><p>{n.text}</p></div><time>{n.time}</time></article>)}</div>{!notifications.length&&<Empty title="You're all caught up" text="New connections and learning activity will appear here."/>}</div> }
-function Profile({ toast, profile, setProfile, joined, setJoined }) {
+function Profile({ toast, profile, setProfile, joined, setJoined, setNotifications }) {
   const { id } = useParams();
   const nav = useNavigate();
   const isMe = !id || id === profile?.id;
@@ -443,7 +541,26 @@ function Profile({ toast, profile, setProfile, joined, setJoined }) {
       toast?.('Please select at least 1 learning skill');
       return;
     }
-    setProfile({ ...profile, bio, teaches: editTeach, learns: editLearn });
+    const updated = { ...profile, bio, teaches: editTeach, learns: editLearn };
+    setProfile(updated);
+    if (setNotifications) {
+      const best = getRankedPeople(updated, people)[0];
+      if (best) {
+        const canTeach = best.canTeachYou?.[0] || best.teaches[0];
+        const wants = best.wantsFromYou?.[0] || editTeach[0] || 'from you';
+        setNotifications(prev => [
+          {
+            id: 1,
+            icon: '✦',
+            title: `${best.match}% skill match found`,
+            text: `${best.name} can teach ${canTeach} and wants to learn ${wants}.`,
+            time: 'Now',
+            unread: true
+          },
+          ...prev.filter(n => n.id !== 1)
+        ]);
+      }
+    }
     setEditing(false);
     toast?.('Profile & skills updated');
   };
